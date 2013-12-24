@@ -1,6 +1,6 @@
 /**
  * CloudPelican javascript library
- * @version 0.2
+ * @version 0.3
  * @author Robin Verlangen
  */
 cloudpelican = {
@@ -9,17 +9,18 @@ cloudpelican = {
      * @type Object
      */
     config : {
-        endpoint : 'https://api.cloudpelican.com/api/push/',
-        token : '',
-        write_interval_ms : 200,
+        token : '', /** Put your API token here */
+        write_interval_ms : 200, /** The amount of milliseconds to wait for other log messages within one bulk request */
         listeners : {
-            window_error : true,
-            console_log : true,
-            console_error : true,
-            console_warn : true,
-            console_debug : true,
-            console_trace : true
-        }
+            window_error : true, /** Listen to javascript errors */
+            console_log : true, /** Listen to console message at level "log" */
+            console_error : true, /** Listen to console message at level "error" */
+            console_warn : true, /** Listen to console message at level "warn" */
+            console_debug : true, /** Listen to console message at level "debug" */
+            console_trace : true /** Listen to console message at level "trace" */
+        },
+        endpoint : 'https://api.cloudpelican.com/api/push/', /** DO NOT MODIFY! The CloudPelican API endpoint */
+        init_passed : false /** DO NOT MODIFY! This flag is used to maintain the CloudPelican state */
     },
     
     
@@ -44,6 +45,12 @@ cloudpelican = {
      * @returns {boolean}
      */
     init : function () {
+        /** Validate token */
+        if (cloudpelican.config.token.length === 0) {
+            console.error('CLOUDPELICAN: Please fill in your API token');
+            return false;
+        }
+        
         /** Window error */
         if (cloudpelican.config.listeners.window_error === true) {
             cloudpelican._oldListeners['window_error'] = window.onerror;
@@ -53,7 +60,7 @@ cloudpelican = {
                     var msg = arguments[0];
                     cloudpelican.log(msg, true, { url : arguments[1], line : arguments[2] }); /** Message, url, line and error flag set to true */
                 } catch (e) {
-                    /** Ignore to prevent infinite errors */
+                    /** Prevent infinite loop */
                 }
                 
                 /** Run existing handles */
@@ -147,7 +154,8 @@ cloudpelican = {
         }
         
         /** Done */
-        return true;
+        cloudpelican.config.init_passed = true;
+        return cloudpelican.config.init_passed;
     },
         
     /**
@@ -160,6 +168,11 @@ cloudpelican = {
     log : function(msg, isError, additionalFields) {
         /** Basic validation */
         if (typeof msg === 'undefined' || msg === null || msg.length === 0) {
+            return false;
+        }
+        
+        /** Ignore CloudPelican log messages "CLOUDPELICAN:" */
+        if (msg.indexOf("CLOUDPELICAN:") === 0) {
             return false;
         }
         
