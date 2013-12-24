@@ -53,7 +53,7 @@ cloudpelican = {
                     var msg = arguments[0];
                     cloudpelican.log(msg, true, { url : arguments[1], line : arguments[2] }); /** Message, url, line and error flag set to true */
                 } catch (e) {
-                    console.log(e);
+                    /** Ignore to prevent infinite errors */
                 }
                 
                 /** Run existing handles */
