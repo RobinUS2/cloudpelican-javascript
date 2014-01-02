@@ -1,6 +1,6 @@
 /**
  * CloudPelican javascript library
- * @version 0.3
+ * @version 0.4
  * @author Robin Verlangen
  */
 cloudpelican = {
@@ -11,6 +11,7 @@ cloudpelican = {
     config : {
         token : '', /** Put your API token here */
         write_interval_ms : 200, /** The amount of milliseconds to wait for other log messages within one bulk request */
+        deduplication : true, /** Do you want to deduplicate sequentially logged events that match exactly? */
         listeners : {
             window_error : true, /** Listen to javascript errors */
             console_log : true, /** Listen to console message at level "log" */
@@ -19,12 +20,50 @@ cloudpelican = {
             console_debug : true, /** Listen to console message at level "debug" */
             console_trace : true /** Listen to console message at level "trace" */
         },
+        max_msg_length : 512, /** DO NOT MODIFY! Maximum message length */
+        compression : true, /** DO NOT MODIFY! Enables compression */
         endpoint : 'https://api.cloudpelican.com/api/push/', /** DO NOT MODIFY! The CloudPelican API endpoint */
         init_passed : false /** DO NOT MODIFY! This flag is used to maintain the CloudPelican state */
     },
     
+    /** Placeholder for listeners */
+    _oldListeners : {},
     
-    _oldListeners : {}, /** Placeholder for listeners */
+    /**
+     * Compress string data
+     * @param {type} uncompressed
+     * @returns {Array|cloudpelican._compress.result}
+     */
+    _compress: function (uncompressed) {
+        "use strict";
+        var i,
+            dictionary = {},
+            c,
+            wc,
+            w = "",
+            result = [],
+            dictSize = 256;
+        for (i = 0; i < 256; i += 1) {
+            dictionary[String.fromCharCode(i)] = i;
+        }
+ 
+        for (i = 0; i < uncompressed.length; i += 1) {
+            c = uncompressed.charAt(i);
+            wc = w + c;
+            if (dictionary.hasOwnProperty(wc)) {
+                w = wc;
+            } else {
+                result.push(dictionary[w]);
+                dictionary[wc] = dictSize++;
+                w = String(c);
+            }
+        }
+        
+        if (w !== "") {
+            result.push(dictionary[w]);
+        }
+        return result.join(',');
+    },
     
     /**
      * Execute an existing error/log listener
@@ -40,11 +79,16 @@ cloudpelican = {
         }
         return false;
     },
+    
      /**
      * Init
      * @returns {boolean}
      */
-    init : function () {
+    init : function (token) {
+        /** Token in init function */
+        if (typeof token !== 'undefined' && token !== null && token.length > 0) {
+            cloudpelican.config.token = token;
+        }
         /** Validate token */
         if (cloudpelican.config.token.length === 0) {
             console.error('CLOUDPELICAN: Please fill in your API token');
@@ -176,6 +220,21 @@ cloudpelican = {
             return false;
         }
         
+        /** To string */
+        if (typeof msg !== 'string') {
+            msg = msg.toString();
+        }
+        
+        /** Too long? */
+        if (msg.length > cloudpelican.config.max_msg_length) {
+            return false;
+        }
+        
+        /** Deduplication */
+        if (cloudpelican.config.deduplication === true && this._isDuplicate(msg)) {
+            return false;
+        }
+        
         /** Basic message and auto populate host and time */
         var fields = {};
         fields['msg'] = msg;
@@ -229,7 +288,21 @@ cloudpelican = {
     _writeStack : [], /** Placeholder for messages until actual flush */
     _writeTimeout : null, /** Timeout holder */
     _writeSequence : 0, /** Counter of writes */
-    _domReady : false, /** Is the dom ready? */
+    
+    /** Alert from API */
+    apiResponse : function(resp) {
+        console.error('CLOUDPELICAN: ' + resp);
+    },
+    
+    /** Deduplication handler */
+    _previousMsg : null,
+    _isDuplicate : function(msg) {
+        if (this._previousMsg !== null && msg === this._previousMsg) {
+            return true;
+        }
+        this._previousMsg = msg;
+        return false;
+    },
     
     /** 
      * Async writing
@@ -252,16 +325,26 @@ cloudpelican = {
                 
                 /** Assemble url */
                 var subEndpoint = currentStack.length === 1 ? 'single' : 'bulk';
-                var url = cloudpelican.config.endpoint + subEndpoint + '?js=1&t=' + encodeURIComponent(cloudpelican.config.token);
+                var baseUrl = cloudpelican.config.endpoint + subEndpoint + '?js=1&t=' + encodeURIComponent(cloudpelican.config.token);
+                var data = '';
                 for (i in currentStack) {
                     payload = currentStack[i];
                     for (k in payload.fields) {
                         val = payload.fields[k];
-                        url += '&f';
+                        data += '&f';
                         if (subEndpoint === 'bulk') {
-                            url += '[' + i + ']';
+                            data += '[' + i + ']';
                         }
-                        url += '[' + encodeURIComponent(k) + ']=' + encodeURIComponent(val);
+                        data += '[' + encodeURIComponent(k) + ']=' + encodeURIComponent(val);
+                    }
+                }
+                
+                /** Compress data and verify this is actually effective */
+                var url = baseUrl + data;
+                if (cloudpelican.config.compression === true) {
+                    var compressed = cloudpelican._compress(data);
+                    if (data.length > compressed.length) {
+                        var url = baseUrl + '&c=' + compressed;
                     }
                 }
                 
@@ -288,4 +371,3 @@ cloudpelican = {
         return true;
     }
 };
-cloudpelican.init();
